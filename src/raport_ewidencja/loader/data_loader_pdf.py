@@ -4,24 +4,29 @@ from typing import Dict
 import pandas as pd
 import pdfplumber
 import re
+from datetime import datetime
 
 
 class PDFLoader:
     def __init__(self, output_dir: str):
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
-        self.logs_dir = Path('logs')
+
+        # Set up logs directory with timestamped filename
+        log_filename = f"data/{datetime.now().strftime('%Y%m%d_%H%M%S')}_logs_pdf_loader.log"
+        self.logs_dir = Path("data")
         self.logs_dir.mkdir(parents=True, exist_ok=True)
-        self.logger = self._setup_logger()
+
+        self.logger = self._setup_logger(log_filename)
         self.total_pages = 0
 
-    def _setup_logger(self) -> logging.Logger:
+    def _setup_logger(self, log_filename: str) -> logging.Logger:
         logger = logging.getLogger('PDFLoader')
         logger.setLevel(logging.INFO)
 
         formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
-        file_handler = logging.FileHandler(self.logs_dir / 'pdf_loader.log')
+        file_handler = logging.FileHandler(log_filename)
         file_handler.setFormatter(formatter)
         logger.addHandler(file_handler)
 
@@ -86,8 +91,8 @@ class PDFLoader:
                             df = pd.DataFrame(page_data)
 
                             if self._validate_columns(page_num, df):
-                                output_path = self.output_dir / f"page_{page_num}_{identifier}.parquet"
-                                df.to_parquet(output_path)
+                                output_path = self.output_dir / f"page_{identifier}_{page_num}.csv"
+                                df.to_csv(output_path, index=False, encoding='utf-8')
                                 self.logger.info(f"Zapisano stronę {page_num} do {output_path}")
 
                     except Exception as e:
