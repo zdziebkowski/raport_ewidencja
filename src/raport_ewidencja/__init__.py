@@ -1,1 +1,1 @@
-ÿþ
+# Package init file
