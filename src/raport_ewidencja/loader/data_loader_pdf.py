@@ -1,105 +1,108 @@
+import logging
 from pathlib import Path
 from typing import Dict
-
 import pandas as pd
 import pdfplumber
+import re
 
 
-def extract_tables_by_page(pdf_path: str) -> Dict[str, pd.DataFrame]:
-    """
-    Wydobywa tabele ze wszystkich stron pliku PDF.
+class PDFLoader:
+    def __init__(self, output_dir: str):
+        self.output_dir = Path(output_dir)
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        self.logs_dir = Path('logs')
+        self.logs_dir.mkdir(parents=True, exist_ok=True)
+        self.logger = self._setup_logger()
+        self.total_pages = 0
 
-    Args:
-        pdf_path: Ścieżka do pliku PDF
+    def _setup_logger(self) -> logging.Logger:
+        logger = logging.getLogger('PDFLoader')
+        logger.setLevel(logging.INFO)
 
-    Returns:
-        Dict[str, pd.DataFrame]: Słownik {numer_strony: dataframe_z_danymi}
+        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
-    Raises:
-        RuntimeError: Gdy wystąpi błąd podczas przetwarzania PDF
-    """
-    try:
-        dataframes = {}
-        with pdfplumber.open(pdf_path) as pdf:
-            for page_num, page in enumerate(pdf.pages, start=1):
-                try:
-                    tables = page.extract_tables()
-                    if not tables:
-                        continue
+        file_handler = logging.FileHandler(self.logs_dir / 'pdf_loader.log')
+        file_handler.setFormatter(formatter)
+        logger.addHandler(file_handler)
 
-                    page_data = []
-                    for table in tables:
-                        cleaned_rows = [
-                            [(cell.replace('\n', ' ').strip() if cell else None) for cell in row]
-                            for row in table
-                        ]
-                        page_data.extend(cleaned_rows)
+        return logger
 
-                    if page_data:
-                        df = pd.DataFrame(page_data)
-                        dataframes[f"page_{page_num}"] = df
+    def _validate_columns(self, page_num: int, df: pd.DataFrame) -> bool:
+        expected_columns = {
+            1: 12,
+            'last': 8,
+            'middle': 9
+        }
 
-                except Exception as e:
-                    print(f"Error processing page {page_num}: {e}")
+        actual_columns = df.shape[1]
 
-        return dataframes
+        if page_num == 1:
+            is_valid = actual_columns == expected_columns[1]
+        elif page_num == self.total_pages:
+            is_valid = actual_columns == expected_columns['last']
+        else:
+            is_valid = actual_columns == expected_columns['middle']
 
-    except Exception as e:
-        raise RuntimeError(f"Failed to process PDF {pdf_path}: {e}")
+        if not is_valid:
+            self.logger.warning(
+                f"Nieprawidłowa liczba kolumn na stronie {page_num}. "
+                f"Oczekiwano: {expected_columns[1 if page_num == 1 else 'last' if page_num == self.total_pages else 'middle']}, "
+                f"Otrzymano: {actual_columns}"
+            )
 
+        return is_valid
 
-def process_all_pdfs(pdf_directory: str) -> Dict[str, Dict[str, pd.DataFrame]]:
-    """
-    Przetwarza wszystkie pliki PDF z podanego katalogu.
-
-    Args:
-        pdf_directory: Ścieżka do katalogu z plikami PDF
-
-    Returns:
-        Dict[str, Dict[str, pd.DataFrame]]: Słownik {nazwa_pliku: {strona: dataframe}}
-    """
-    results = {}
-    total_files = 0
-    total_pages = 0
-    total_tables = 0
-
-    pdf_files = Path(pdf_directory).glob('*.PDF')
-
-    for pdf_path in pdf_files:
+    def extract_tables(self, pdf_path: str) -> None:
         try:
-            dataframes = extract_tables_by_page(str(pdf_path))
-            if dataframes:
-                results[pdf_path.name] = dataframes
-                print_pdf_stats(pdf_path.name, dataframes)
-                total_files += 1
-                total_pages += len(dataframes)
-                total_tables += sum(df.shape[0] for df in dataframes.values())
+            pdf_name = Path(pdf_path).name
+            pattern = r'(\d{2})-(\d{4})\s*(OŚ|PG)'
+            match = re.search(pattern, pdf_name)
+
+            if not match:
+                self.logger.error(f"Nieprawidłowa nazwa pliku: {pdf_name}")
+                return
+
+            month, year, type_ = match.groups()
+            identifier = f"{month}_{year}_{type_}"
+
+            with pdfplumber.open(pdf_path) as pdf:
+                self.total_pages = len(pdf.pages)
+
+                for page_num, page in enumerate(pdf.pages, start=1):
+                    try:
+                        tables = page.extract_tables()
+                        if not tables:
+                            continue
+
+                        page_data = []
+                        for table in tables:
+                            cleaned_rows = [
+                                [(cell.replace('\n', ' ').strip() if cell else None) for cell in row]
+                                for row in table
+                            ]
+                            page_data.extend(cleaned_rows)
+
+                        if page_data:
+                            df = pd.DataFrame(page_data)
+
+                            if self._validate_columns(page_num, df):
+                                output_path = self.output_dir / f"page_{page_num}_{identifier}.parquet"
+                                df.to_parquet(output_path)
+                                self.logger.info(f"Zapisano stronę {page_num} do {output_path}")
+
+                    except Exception as e:
+                        self.logger.error(f"Błąd przetwarzania strony {page_num}: {e}")
+
         except Exception as e:
-            print(f"Error processing {pdf_path}: {e}")
+            self.logger.error(f"Błąd przetwarzania pliku {pdf_path}: {e}")
 
-    print(f"\nPodsumowanie:")
-    print(f"Przetworzone pliki: {total_files}")
-    print(f"Całkowita liczba stron: {total_pages}")
-    print(f"Całkowita liczba wierszy: {total_tables}")
+    def process_directory(self, pdf_directory: str) -> None:
+        pdf_files = Path(pdf_directory).glob('*.PDF')
 
-    return results
-
-
-def print_pdf_stats(pdf_name: str, pages: Dict[str, pd.DataFrame]) -> None:
-    """
-    Wyświetla statystyki dla przetworzonego pliku PDF.
-
-    Args:
-        pdf_name: Nazwa pliku PDF
-        pages: Słownik z danymi stron
-    """
-    total_rows = sum(df.shape[0] for df in pages.values())
-    print(f"\nStatystyki dla {pdf_name}:")
-    print(f"Liczba stron z tabelami: {len(pages)}")
-    print(f"Całkowita liczba wierszy: {total_rows}")
-
-    for page_num, df in pages.items():
-        print(f"  {page_num}: {df.shape[0]} wierszy, {df.shape[1]} kolumn")
-
-if __name__ == "__main__":
-    results = process_all_pdfs("C:\\Users\\wojci\\Documents\\Dokumenty_Glowne\\Projects\\raport_ewidencja\\pdf_files")
+        for pdf_path in pdf_files:
+            try:
+                self.logger.info(f"Rozpoczęto przetwarzanie: {pdf_path.name}")
+                self.extract_tables(str(pdf_path))
+                self.logger.info(f"Zakończono przetwarzanie: {pdf_path.name}")
+            except Exception as e:
+                self.logger.error(f"Błąd podczas przetwarzania {pdf_path.name}: {e}")
