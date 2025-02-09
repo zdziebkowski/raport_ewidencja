@@ -8,10 +8,13 @@ from raport_ewidencja.loader.data_loader_pdf import PDFLoader  # Import PDFLoade
 
 
 class PDFNormalizer:
-    def __init__(self, input_dir: str):
+    def __init__(self, input_dir: str, pdf_dir: str, output_dir: str):
         self.input_dir = Path(input_dir)
+        self.pdf_dir = Path(pdf_dir)
+        self.output_dir = Path(output_dir)
         self.logger = self._setup_logger()
         self.target_columns = ['Data', 'Pojazd', 'Lokalizacja', 'Gmina', 'Miasto', 'Ilość [m3]']
+        self.loader = PDFLoader(output_dir=str(self.input_dir))
 
     def _setup_logger(self) -> logging.Logger:
         logger = logging.getLogger('PDFNormalizer')
