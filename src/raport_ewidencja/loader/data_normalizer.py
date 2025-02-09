@@ -4,7 +4,8 @@ from typing import List
 import pandas as pd
 import re
 import json
-from raport_ewidencja.loader.data_loader_pdf import PDFLoader  # Import PDFLoader do przetwarzania PDF
+from datetime import datetime
+from raport_ewidencja.loader.data_loader_pdf import PDFLoader  # Import PDFLoader for PDF processing
 
 
 class PDFNormalizer:
@@ -12,180 +13,182 @@ class PDFNormalizer:
         self.input_dir = Path(input_dir)
         self.pdf_dir = Path(pdf_dir)
         self.output_dir = Path(output_dir)
-        self.logger = self._setup_logger()
+
+        # Setup logger with timestamped filename
+        log_filename = f"data/{datetime.now().strftime('%Y%m%d_%H%M%S')}_logs_pdf_normalizer.log"
+        self.logger = self._setup_logger(log_filename)
+
         self.target_columns = ['Data', 'Pojazd', 'Lokalizacja', 'Gmina', 'Miasto', 'Ilość [m3]']
         self.loader = PDFLoader(output_dir=str(self.input_dir))
 
-    def _setup_logger(self) -> logging.Logger:
+    def _setup_logger(self, log_filename: str) -> logging.Logger:
         logger = logging.getLogger('PDFNormalizer')
         logger.setLevel(logging.INFO)
 
-        log_dir = Path('logs')
-        log_dir.mkdir(exist_ok=True)
-
         formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-        file_handler = logging.FileHandler(log_dir / 'pdf_normalizer.log')
+
+        file_handler = logging.FileHandler(log_filename)
         file_handler.setFormatter(formatter)
         logger.addHandler(file_handler)
 
         return logger
 
     def normalize_first_page(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Normalizuje pierwszą stronę PDF."""
+        """Normalizes the first page of the PDF."""
         try:
             df = df.drop(df.index[:6])
             df.columns = df.iloc[0]
-            df = df.iloc[1:]
-            df = df.reset_index(drop=True)
+            df = df.iloc[1:].reset_index(drop=True)
             df = df.dropna(subset=['Data i godzina ważenia'])
-            df = df.reset_index(drop=True)
             df = df.drop(df.columns[[1, 2, 3, 5, 8, 10]], axis=1)
             df.columns = self.target_columns
             return df
         except Exception as e:
-            self.logger.error(f"Błąd podczas normalizacji pierwszej strony: {e}")
+            self.logger.error(f"Error normalizing first page: {e}")
             raise
 
     def normalize_middle_pages(self, dfs: List[pd.DataFrame]) -> pd.DataFrame:
-        """Normalizuje środkowe strony PDF."""
+        """Normalizes middle pages of the PDF."""
         try:
             df_middle = pd.concat(dfs, ignore_index=True)
             df_middle = df_middle.dropna(subset=[1])
             df_middle['combined'] = df_middle[0].astype(str) + df_middle[1].astype(str)
             df_middle = df_middle.drop(columns=[0, 1])
             cols = ['combined'] + [col for col in df_middle.columns if col != 'combined']
-            df_middle = df_middle[cols]
-            df_middle = df_middle.drop(columns=[5, 7])
+            df_middle = df_middle[cols].drop(columns=[5, 7])
             df_middle.columns = self.target_columns
             return df_middle
         except Exception as e:
-            self.logger.error(f"Błąd podczas normalizacji środkowych stron: {e}")
+            self.logger.error(f"Error normalizing middle pages: {e}")
             raise
 
     def normalize_last_page(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Normalizuje ostatnią stronę PDF."""
+        """Normalizes the last page of the PDF."""
         try:
-            df = df.iloc[3:-3]
-            df = df.reset_index(drop=True)
+            df = df.iloc[3:-3].reset_index(drop=True)
             df = df.drop(df.columns[[4, 6]], axis=1)
             df = df.dropna(subset=[1])
             df.columns = self.target_columns
             return df
         except Exception as e:
-            self.logger.error(f"Błąd podczas normalizacji ostatniej strony: {e}")
+            self.logger.error(f"Error normalizing last page: {e}")
             raise
 
     def process_all_pdfs(self):
-        """Przetwarza wszystkie pliki PDF w katalogu wejściowym."""
-        self.logger.info("Rozpoczęcie przetwarzania wszystkich plików PDF")
-        self.loader.process_directory(str(self.pdf_dir))  # Uruchamia przetwarzanie PDF
-        self.merge_all_files()  # Normalizacja danych po ekstrakcji
+        """Processes all PDFs in the input directory."""
+        self.logger.info("Starting processing of all PDFs")
+        self.loader.process_directory(str(self.pdf_dir))  # Process PDFs first
+        self.merge_all_files()  # Normalize extracted data
 
     def calculate_statistics(self, df: pd.DataFrame) -> dict:
+        """Calculates statistics from the processed data."""
         total_volume = df['Ilość [m3]'].sum()
         row_count = len(df)
         return {"total_volume": total_volume, "row_count": row_count}
 
     def save_statistics(self, stats: dict, pattern: str) -> None:
+        """Saves statistics to a JSON file."""
         stats_output_path = Path("stats")
         stats_output_path.mkdir(exist_ok=True)
         with open(stats_output_path / f"stats_{pattern}.json", "w") as f:
             json.dump(stats, f, indent=4)
 
     def save_to_csv(self, df: pd.DataFrame, pattern: str) -> None:
+        """Saves the final normalized data to CSV."""
         self.output_dir.mkdir(exist_ok=True)
         df.to_csv(self.output_dir / f"data_{pattern}.csv", index=False)
 
     def _get_base_pattern(self, file_pattern: str) -> str:
-        """Wyciąga podstawowy wzorzec z nazwy pliku."""
+        """Extracts the base pattern from a file name."""
         pattern_parts = file_pattern.split('_')
         if len(pattern_parts) >= 5:
-            return f"{pattern_parts[2]}_{pattern_parts[3]}_{pattern_parts[4]}"
-        raise ValueError(f"Nieprawidłowy format wzorca: {file_pattern}")
-
+            return f"{pattern_parts[1]}_{pattern_parts[2]}_{pattern_parts[3]}"
+        raise ValueError(f"Invalid pattern format: {file_pattern}")
 
     def process_file(self, file_pattern: str) -> pd.DataFrame:
-        """Przetwarza wszystkie strony z jednego pliku PDF."""
+        """Processes all pages from a single PDF."""
         try:
             base_pattern = self._get_base_pattern(file_pattern)
-            files = sorted(self.input_dir.glob(f"page_*_{base_pattern}.parquet"))
+            files = sorted(self.input_dir.glob(f"page_{base_pattern}_*.csv"))
 
             if not files:
-                raise FileNotFoundError(f"Nie znaleziono plików dla wzorca: {base_pattern}")
+                raise FileNotFoundError(f"No files found for pattern: {base_pattern}")
 
             dfs = []
             source_file = base_pattern
             total_pages = len(files)
 
-            # Pierwsza strona
-            first_page = pd.read_parquet(files[0])
+            # First page
+            first_page = pd.read_csv(files[0])
             df_first = self.normalize_first_page(first_page)
             df_first['source_file'] = source_file
             dfs.append(df_first)
 
             if total_pages == 2:
-                # Dla plików dwustronicowych
-                last_page = pd.read_parquet(files[1])
+                # Two-page documents
+                last_page = pd.read_csv(files[1])
                 df_last = self.normalize_last_page(last_page)
                 df_last['source_file'] = source_file
                 dfs.append(df_last)
             else:
-                # Dla plików wielostronicowych
-                middle_pages = [pd.read_parquet(f) for f in files[1:-1]]
+                # Multi-page documents
+                middle_pages = [pd.read_csv(f) for f in files[1:-1]]
                 if middle_pages:
                     df_middle = self.normalize_middle_pages(middle_pages)
                     df_middle['source_file'] = source_file
                     dfs.append(df_middle)
 
-                # Ostatnia strona
-                last_page = pd.read_parquet(files[-1])
+                # Last page
+                last_page = pd.read_csv(files[-1])
                 df_last = self.normalize_last_page(last_page)
                 df_last['source_file'] = source_file
                 dfs.append(df_last)
 
-            # Połącz wszystkie strony
+            # Merge all pages
             df_final = pd.concat(dfs, ignore_index=True)
-            self.logger.info(f"Pomyślnie przetworzono plik: {source_file}")
+            self.logger.info(f"Successfully processed file: {source_file}")
             return df_final
 
         except Exception as e:
-            self.logger.error(f"Błąd podczas przetwarzania pliku {file_pattern}: {e}")
+            self.logger.error(f"Error processing file {file_pattern}: {e}")
             raise
 
-
     def merge_all_files(self) -> pd.DataFrame:
+        """Merges all processed files into a single dataset."""
         all_results = []
         patterns = set()
 
-        for file in self.input_dir.glob("page_1_*.parquet"):
+        # Find unique file patterns
+        for file in self.input_dir.glob("page_*_*.csv"):
             parts = file.stem.split('_')
-            if len(parts) >= 5:
-                patterns.add(f"{parts[2]}_{parts[3]}_{parts[4]}")
+            if len(parts) >= 4:
+                patterns.add(f"{parts[1]}_{parts[2]}_{parts[3]}")
 
+        # Process each file pattern
         for pattern in sorted(patterns):
             try:
-                df = self.process_file(f"page_1_{pattern}")
+                df = self.process_file(f"page_{pattern}")
                 all_results.append(df)
             except Exception as e:
-                self.logger.error(f"Błąd podczas przetwarzania {pattern}: {e}")
+                self.logger.error(f"Error processing {pattern}: {e}")
                 continue
 
         if not all_results:
-            raise ValueError("Nie znaleziono żadnych plików do połączenia")
+            raise ValueError("No files found to merge")
 
+        # Merge and add tracking index
         final_df = pd.concat(all_results, ignore_index=True)
         final_df['tracking_index'] = range(1, len(final_df) + 1)
 
-        # Transformacja kolumny 'Ilość [m3]'
+        # Convert "Ilość [m3]" column from text to float
         final_df['Ilość [m3]'] = final_df['Ilość [m3]'].str.replace(',', '.').astype(float)
 
-        # Obliczanie statystyk
+        # Calculate statistics
         stats = self.calculate_statistics(final_df)
 
-        self.logger.info(
-            f"Połączono {len(patterns)} plików, łącznie {stats['row_count']} wierszy, suma Ilość [m3]: {stats['total_volume']:.2f}")
+        self.logger.info(f"Merged {len(patterns)} files, total rows: {stats['row_count']}, total volume: {stats['total_volume']:.2f}")
 
-        # Zapisanie wyników
+        # Save results
         for pattern in patterns:
             self.save_statistics(stats, pattern)
             self.save_to_csv(final_df, pattern)
