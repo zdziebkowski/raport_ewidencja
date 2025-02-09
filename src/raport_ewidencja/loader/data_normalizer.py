@@ -3,6 +3,8 @@ from pathlib import Path
 from typing import List
 import pandas as pd
 import re
+import json
+from raport_ewidencja.loader.data_loader_pdf import PDFLoader  # Import PDFLoader do przetwarzania PDF
 
 
 class PDFNormalizer:
@@ -70,12 +72,34 @@ class PDFNormalizer:
             self.logger.error(f"Błąd podczas normalizacji ostatniej strony: {e}")
             raise
 
+    def process_all_pdfs(self):
+        """Przetwarza wszystkie pliki PDF w katalogu wejściowym."""
+        self.logger.info("Rozpoczęcie przetwarzania wszystkich plików PDF")
+        self.loader.process_directory(str(self.pdf_dir))  # Uruchamia przetwarzanie PDF
+        self.merge_all_files()  # Normalizacja danych po ekstrakcji
+
+    def calculate_statistics(self, df: pd.DataFrame) -> dict:
+        total_volume = df['Ilość [m3]'].sum()
+        row_count = len(df)
+        return {"total_volume": total_volume, "row_count": row_count}
+
+    def save_statistics(self, stats: dict, pattern: str) -> None:
+        stats_output_path = Path("stats")
+        stats_output_path.mkdir(exist_ok=True)
+        with open(stats_output_path / f"stats_{pattern}.json", "w") as f:
+            json.dump(stats, f, indent=4)
+
+    def save_to_csv(self, df: pd.DataFrame, pattern: str) -> None:
+        self.output_dir.mkdir(exist_ok=True)
+        df.to_csv(self.output_dir / f"data_{pattern}.csv", index=False)
+
     def _get_base_pattern(self, file_pattern: str) -> str:
         """Wyciąga podstawowy wzorzec z nazwy pliku."""
         pattern_parts = file_pattern.split('_')
         if len(pattern_parts) >= 5:
             return f"{pattern_parts[2]}_{pattern_parts[3]}_{pattern_parts[4]}"
         raise ValueError(f"Nieprawidłowy format wzorca: {file_pattern}")
+
 
     def process_file(self, file_pattern: str) -> pd.DataFrame:
         """Przetwarza wszystkie strony z jednego pliku PDF."""
@@ -125,18 +149,16 @@ class PDFNormalizer:
             self.logger.error(f"Błąd podczas przetwarzania pliku {file_pattern}: {e}")
             raise
 
+
     def merge_all_files(self) -> pd.DataFrame:
-        """Łączy wszystkie znormalizowane pliki i dodaje indeks śledzenia."""
         all_results = []
         patterns = set()
 
-        # Znajdź unikalne wzorce plików
         for file in self.input_dir.glob("page_1_*.parquet"):
             parts = file.stem.split('_')
             if len(parts) >= 5:
                 patterns.add(f"{parts[2]}_{parts[3]}_{parts[4]}")
 
-        # Przetwórz każdy plik
         for pattern in sorted(patterns):
             try:
                 df = self.process_file(f"page_1_{pattern}")
@@ -148,9 +170,21 @@ class PDFNormalizer:
         if not all_results:
             raise ValueError("Nie znaleziono żadnych plików do połączenia")
 
-        # Połącz i dodaj indeks
         final_df = pd.concat(all_results, ignore_index=True)
         final_df['tracking_index'] = range(1, len(final_df) + 1)
 
-        self.logger.info(f"Połączono {len(patterns)} plików, łącznie {len(final_df)} wierszy")
+        # Transformacja kolumny 'Ilość [m3]'
+        final_df['Ilość [m3]'] = final_df['Ilość [m3]'].str.replace(',', '.').astype(float)
+
+        # Obliczanie statystyk
+        stats = self.calculate_statistics(final_df)
+
+        self.logger.info(
+            f"Połączono {len(patterns)} plików, łącznie {stats['row_count']} wierszy, suma Ilość [m3]: {stats['total_volume']:.2f}")
+
+        # Zapisanie wyników
+        for pattern in patterns:
+            self.save_statistics(stats, pattern)
+            self.save_to_csv(final_df, pattern)
+
         return final_df
