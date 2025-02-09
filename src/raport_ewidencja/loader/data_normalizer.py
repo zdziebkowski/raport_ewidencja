@@ -124,3 +124,33 @@ class PDFNormalizer:
         except Exception as e:
             self.logger.error(f"Błąd podczas przetwarzania pliku {file_pattern}: {e}")
             raise
+
+    def merge_all_files(self) -> pd.DataFrame:
+        """Łączy wszystkie znormalizowane pliki i dodaje indeks śledzenia."""
+        all_results = []
+        patterns = set()
+
+        # Znajdź unikalne wzorce plików
+        for file in self.input_dir.glob("page_1_*.parquet"):
+            parts = file.stem.split('_')
+            if len(parts) >= 5:
+                patterns.add(f"{parts[2]}_{parts[3]}_{parts[4]}")
+
+        # Przetwórz każdy plik
+        for pattern in sorted(patterns):
+            try:
+                df = self.process_file(f"page_1_{pattern}")
+                all_results.append(df)
+            except Exception as e:
+                self.logger.error(f"Błąd podczas przetwarzania {pattern}: {e}")
+                continue
+
+        if not all_results:
+            raise ValueError("Nie znaleziono żadnych plików do połączenia")
+
+        # Połącz i dodaj indeks
+        final_df = pd.concat(all_results, ignore_index=True)
+        final_df['tracking_index'] = range(1, len(final_df) + 1)
+
+        self.logger.info(f"Połączono {len(patterns)} plików, łącznie {len(final_df)} wierszy")
+        return final_df
