@@ -1,9 +1,8 @@
-import logging
 from pathlib import Path
-from typing import Dict
 import pandas as pd
 import pdfplumber
 import re
+from raport_ewidencja.loader.logger_config import setup_logger
 
 
 class PDFLoader:
@@ -12,20 +11,8 @@ class PDFLoader:
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.logs_dir = Path('logs')
         self.logs_dir.mkdir(parents=True, exist_ok=True)
-        self.logger = self._setup_logger()
+        self.logger = setup_logger('PDFLoader', str(self.logs_dir))
         self.total_pages = 0
-
-    def _setup_logger(self) -> logging.Logger:
-        logger = logging.getLogger('PDFLoader')
-        logger.setLevel(logging.INFO)
-
-        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-
-        file_handler = logging.FileHandler(self.logs_dir / 'pdf_loader.log')
-        file_handler.setFormatter(formatter)
-        logger.addHandler(file_handler)
-
-        return logger
 
     def _validate_columns(self, page_num: int, df: pd.DataFrame) -> bool:
         expected_columns = {

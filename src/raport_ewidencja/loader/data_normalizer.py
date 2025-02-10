@@ -1,10 +1,9 @@
-import logging
 from pathlib import Path
 from typing import List
 import pandas as pd
-import re
 import json
-from raport_ewidencja.loader.data_loader_pdf import PDFLoader  # Import PDFLoader do przetwarzania PDF
+from raport_ewidencja.loader.data_loader_pdf import PDFLoader
+from raport_ewidencja.loader.logger_config import setup_logger  # Dodajemy import nowego loggera
 
 
 class PDFNormalizer:
@@ -12,23 +11,9 @@ class PDFNormalizer:
         self.input_dir = Path(input_dir)
         self.pdf_dir = Path(pdf_dir)
         self.output_dir = Path(output_dir)
-        self.logger = self._setup_logger()
+        self.logger = setup_logger('PDFNormalizer', 'logs')
         self.target_columns = ['Data', 'Pojazd', 'Lokalizacja', 'Gmina', 'Miasto', 'Ilość [m3]']
         self.loader = PDFLoader(output_dir=str(self.input_dir))
-
-    def _setup_logger(self) -> logging.Logger:
-        logger = logging.getLogger('PDFNormalizer')
-        logger.setLevel(logging.INFO)
-
-        log_dir = Path('logs')
-        log_dir.mkdir(exist_ok=True)
-
-        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-        file_handler = logging.FileHandler(log_dir / 'pdf_normalizer.log')
-        file_handler.setFormatter(formatter)
-        logger.addHandler(file_handler)
-
-        return logger
 
     def normalize_first_page(self, df: pd.DataFrame) -> pd.DataFrame:
         """Normalizuje pierwszą stronę PDF."""
