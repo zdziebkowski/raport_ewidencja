@@ -5,6 +5,7 @@ import pandas as pd
 import pdfplumber
 import re
 from datetime import datetime
+from raport_ewidencja.utils.logging_utils import setup_logger
 
 
 class PDFLoader:
@@ -12,25 +13,9 @@ class PDFLoader:
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
-        # Set up logs directory with timestamped filename
-        log_filename = f"data/{datetime.now().strftime('%Y%m%d_%H%M%S')}_logs_pdf_loader.log"
-        self.logs_dir = Path("data")
-        self.logs_dir.mkdir(parents=True, exist_ok=True)
-
-        self.logger = self._setup_logger(log_filename)
+        self.logger = setup_logger("pdf_loader")  # Use shared logger setup
         self.total_pages = 0
 
-    def _setup_logger(self, log_filename: str) -> logging.Logger:
-        logger = logging.getLogger('PDFLoader')
-        logger.setLevel(logging.INFO)
-
-        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-
-        file_handler = logging.FileHandler(log_filename)
-        file_handler.setFormatter(formatter)
-        logger.addHandler(file_handler)
-
-        return logger
 
     def _validate_columns(self, page_num: int, df: pd.DataFrame) -> bool:
         expected_columns = {

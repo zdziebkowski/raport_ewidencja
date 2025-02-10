@@ -6,6 +6,8 @@ import re
 import json
 from datetime import datetime
 from raport_ewidencja.loader.data_loader_pdf import PDFLoader  # Import PDFLoader for PDF processing
+from raport_ewidencja.utils.logging_utils import setup_logger
+from raport_ewidencja.loader.data_loader_pdf import PDFLoader
 
 
 class PDFNormalizer:
@@ -14,24 +16,10 @@ class PDFNormalizer:
         self.pdf_dir = Path(pdf_dir)
         self.output_dir = Path(output_dir)
 
-        # Setup logger with timestamped filename
-        log_filename = f"data/{datetime.now().strftime('%Y%m%d_%H%M%S')}_logs_pdf_normalizer.log"
-        self.logger = self._setup_logger(log_filename)
-
+        self.logger = setup_logger("pdf_normalizer")  # Use shared logger setup
         self.target_columns = ['Data', 'Pojazd', 'Lokalizacja', 'Gmina', 'Miasto', 'Ilość [m3]']
         self.loader = PDFLoader(output_dir=str(self.input_dir))
 
-    def _setup_logger(self, log_filename: str) -> logging.Logger:
-        logger = logging.getLogger('PDFNormalizer')
-        logger.setLevel(logging.INFO)
-
-        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-
-        file_handler = logging.FileHandler(log_filename)
-        file_handler.setFormatter(formatter)
-        logger.addHandler(file_handler)
-
-        return logger
 
     def normalize_first_page(self, df: pd.DataFrame) -> pd.DataFrame:
         """Normalizes the first page of the PDF."""
