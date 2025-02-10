@@ -86,12 +86,26 @@ class PDFNormalizer:
         row_count = len(df)
         return {"total_volume": total_volume, "row_count": row_count}
 
-    def save_statistics(self, stats: dict, pattern: str) -> None:
-        """Saves statistics to a JSON file."""
+    def save_statistics(self, stats: dict) -> None:
+        """Saves all statistics in a single JSON file."""
         stats_output_path = Path("stats")
         stats_output_path.mkdir(exist_ok=True)
-        with open(stats_output_path / f"stats_{pattern}.json", "w") as f:
-            json.dump(stats, f, indent=4)
+
+        stats_file = stats_output_path / "summary_stats.json"
+
+        # Load existing stats if file exists
+        if stats_file.exists():
+            with open(stats_file, "r") as f:
+                all_stats = json.load(f)
+        else:
+            all_stats = {}
+
+        # Update stats with new data
+        all_stats.update(stats)
+
+        # Save updated stats
+        with open(stats_file, "w") as f:
+            json.dump(all_stats, f, indent=4)
 
     def save_to_csv(self, df: pd.DataFrame, pattern: str) -> None:
         """Saves the final normalized data to CSV."""
@@ -183,14 +197,16 @@ class PDFNormalizer:
         # Convert "Ilość [m3]" column from text to float
         final_df['Ilość [m3]'] = final_df['Ilość [m3]'].str.replace(',', '.').astype(float)
 
-        # Calculate statistics
+        # Calculate statistics for final dataset
         stats = self.calculate_statistics(final_df)
 
-        self.logger.info(f"Merged {len(patterns)} files, total rows: {stats['row_count']}, total volume: {stats['total_volume']:.2f}")
+        self.logger.info(
+            f"Merged {len(patterns)} files, total rows: {stats['row_count']}, total volume: {stats['total_volume']:.2f}")
 
-        # Save results
-        for pattern in patterns:
-            self.save_statistics(stats, pattern)
-            self.save_to_csv(final_df, pattern)
+        # Save combined statistics
+        self.save_statistics({pattern: stats for pattern in patterns})
+
+        # Save final CSV
+        self.save_to_csv(final_df, "merged_data")
 
         return final_df
