@@ -102,14 +102,14 @@ class PDFNormalizer:
         """Extracts the base pattern from a file name."""
         pattern_parts = file_pattern.split('_')
         if len(pattern_parts) >= 5:
-            return f"{pattern_parts[1]}_{pattern_parts[2]}_{pattern_parts[3]}"
+            return f"{pattern_parts[0]}_{pattern_parts[2]}_{pattern_parts[3]}"
         raise ValueError(f"Invalid pattern format: {file_pattern}")
 
     def process_file(self, file_pattern: str) -> pd.DataFrame:
         """Processes all pages from a single PDF."""
         try:
             base_pattern = self._get_base_pattern(file_pattern)
-            files = sorted(self.input_dir.glob(f"page_{base_pattern}_*.csv"))
+            files = sorted(self.input_dir.glob(f"{base_pattern}_page_*.csv"))
 
             if not files:
                 raise FileNotFoundError(f"No files found for pattern: {base_pattern}")
@@ -159,7 +159,7 @@ class PDFNormalizer:
         patterns = set()
 
         # Find unique file patterns
-        for file in self.input_dir.glob("page_*_*.csv"):
+        for file in self.input_dir.glob("*_page_*.csv"):
             parts = file.stem.split('_')
             if len(parts) >= 4:
                 patterns.add(f"{parts[1]}_{parts[2]}_{parts[3]}")

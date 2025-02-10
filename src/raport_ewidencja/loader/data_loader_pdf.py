@@ -91,7 +91,7 @@ class PDFLoader:
                             df = pd.DataFrame(page_data)
 
                             if self._validate_columns(page_num, df):
-                                output_path = self.output_dir / f"page_{identifier}_{page_num}.csv"
+                                output_path = self.output_dir / f"{identifier}_page_{page_num}.csv"
                                 df.to_csv(output_path, index=False, encoding='utf-8')
                                 self.logger.info(f"Zapisano stronę {page_num} do {output_path}")
 
