@@ -101,10 +101,12 @@ class PDFNormalizer:
         df.to_csv(self.output_dir / f"data_{pattern}.csv", index=False)
 
     def _get_base_pattern(self, file_pattern: str) -> str:
-        """Extracts the base pattern from a file name."""
+        """Extracts the base pattern (identifier) from a file name."""
+
         pattern_parts = file_pattern.split('_')
-        if len(pattern_parts) >= 5:
-            return f"{pattern_parts[0]}_{pattern_parts[2]}_{pattern_parts[3]}"
+        if len(pattern_parts) >= 3:
+            return f"{pattern_parts[0]}_{pattern_parts[1]}"
+
         raise ValueError(f"Invalid pattern format: {file_pattern}")
 
     def process_file(self, file_pattern: str) -> pd.DataFrame:
@@ -160,16 +162,16 @@ class PDFNormalizer:
         all_results = []
         patterns = set()
 
-        # Find unique file patterns
+        # Find unique file patterns (extracting identifier correctly)
         for file in self.input_dir.glob("*_page_*.csv"):
             parts = file.stem.split('_')
-            if len(parts) >= 4:
-                patterns.add(f"{parts[1]}_{parts[2]}_{parts[3]}")
+            if len(parts) >= 3:
+                patterns.add(f"{parts[0]}_{parts[1]}")  # Extracts e.g., "07_2024_OŚ"
 
         # Process each file pattern
         for pattern in sorted(patterns):
             try:
-                df = self.process_file(f"page_{pattern}")
+                df = self.process_file(f"{pattern}_page")
                 all_results.append(df)
             except Exception as e:
                 self.logger.error(f"Error processing {pattern}: {e}")
@@ -185,16 +187,15 @@ class PDFNormalizer:
         # Convert "Ilość [m3]" column from text to float
         final_df['Ilość [m3]'] = final_df['Ilość [m3]'].str.replace(',', '.').astype(float)
 
-        # Calculate statistics for final dataset
+        # Calculate statistics
         stats = self.calculate_statistics(final_df)
 
         self.logger.info(
             f"Merged {len(patterns)} files, total rows: {stats['row_count']}, total volume: {stats['total_volume']:.2f}")
 
-        # Save combined statistics
+        # Save combined statistics and results
         self.save_statistics({pattern: stats for pattern in patterns})
-
-        # Save final CSV
         self.save_to_csv(final_df, "merged_data")
 
         return final_df
+
